@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.coverage
+htmlcov/
+.pytest_cache/
+.venv/
+venv/
+
+# Editors and operating systems
+/.idea/
+.DS_Store
+Thumbs.db
+.*.sw?

@@ -1,0 +1,10 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": [
+        "/src/*/cashbacks/*.json"
+      ],
+      "url": "./schema/cashback-category-source.schema.json"
+    }
+  ]
+}

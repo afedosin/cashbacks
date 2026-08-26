@@ -1,0 +1,7 @@
+{
+  "category": "Такси",
+  "unified_category": "Такси",
+  "include_mcc": [
+    4121
+  ]
+}

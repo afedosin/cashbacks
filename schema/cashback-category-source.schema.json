@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cashback category source file",
+  "description": "One strict raw cashback category rule. Alias and MCC ordering constraints are enforced by source validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "category"
+  ],
+  "properties": {
+    "category": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/alias"
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/alias"
+          }
+        }
+      ]
+    },
+    "unified_category": {
+      "$ref": "#/$defs/alias"
+    },
+    "include_mcc": {
+      "$ref": "#/$defs/mcc_list"
+    },
+    "exclude_mcc": {
+      "$ref": "#/$defs/mcc_list"
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "include_mcc"
+      ],
+      "not": {
+        "required": [
+          "exclude_mcc"
+        ]
+      }
+    },
+    {
+      "required": [
+        "exclude_mcc"
+      ],
+      "not": {
+        "required": [
+          "include_mcc"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "alias": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+    },
+    "mcc_list": {
+      "type": "array",
+      "description": "A non-empty, duplicate-free MCC list in strictly ascending numeric order.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 9999
+      }
+    }
+  }
+}

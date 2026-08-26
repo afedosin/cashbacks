@@ -1,0 +1,30 @@
+name: Validate cashback mappings
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install server dependencies
+        run: python3 -m pip install --no-cache-dir -r server/requirements.txt
+
+      - name: Run unit tests
+        run: python3 -m unittest discover -s tests
+
+      - name: Validate sources
+        run: python3 scripts/cashbacks.py validate
+

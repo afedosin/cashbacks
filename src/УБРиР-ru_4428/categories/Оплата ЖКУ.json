@@ -1,0 +1,7 @@
+{
+  "category": "Оплата ЖКУ",
+  "unified_category": "ЖКХ",
+  "include_mcc": [
+    4900
+  ]
+}

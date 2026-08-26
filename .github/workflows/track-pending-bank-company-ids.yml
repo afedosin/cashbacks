@@ -1,0 +1,29 @@
+name: Track pending bank IDs
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: track-pending-bank-company-ids
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+
+      - name: Track pending bank IDs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/track_pending_bank_company_ids.py
