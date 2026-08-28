@@ -1,0 +1,16 @@
+image: python:3.13-slim
+
+stages:
+  - deploy
+
+pushToDockerRegistry:
+  stage: deploy
+  rules:
+    - if: $CI_COMMIT_REF_NAME == "main" || $CI_COMMIT_REF_NAME == "master" || $CI_COMMIT_REF_NAME == "develop"
+  image: docker:29.6.2
+  services:
+    - docker:29.6.2-dind
+  script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER $CI_REGISTRY --password-stdin
+    - docker build -f server/Dockerfile -t $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
