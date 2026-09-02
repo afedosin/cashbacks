@@ -88,10 +88,10 @@ class CashbacksCliTest(unittest.TestCase):
         source_directory.mkdir()
         return root, source_directory
 
-    def test_validate_accepts_opaque_filename_and_unified_category(self):
+    def test_validate_accepts_canonical_scalar_filename_and_preserves_rule(self):
         self.write_entry(
             "Example Bank-ru_5044",
-            "offer-2026.json",
+            "Groceries.json",
             {
                 "category": "Groceries",
                 "unified_category": "Food",
@@ -108,18 +108,79 @@ class CashbacksCliTest(unittest.TestCase):
         self.assertEqual("Groceries", entry["category"])
         self.assertEqual("Food", entry["unified_category"])
 
+    def test_array_filename_uses_only_first_alias_and_preserves_rule(self):
+        aliases = ["Primary Category", "Later/Alias"]
+        self.write_entry(
+            "Bank-ru_3",
+            "Primary Category.json",
+            {
+                "category": aliases,
+                "unified_category": "Unified/Category",
+                "include_mcc": [1],
+            },
+        )
+
+        entry = cashbacks.load_sources(self.root)[0].entries[0]
+
+        self.assertEqual(aliases, entry["category"])
+        self.assertEqual("Unified/Category", entry["unified_category"])
+
+    def test_canonical_filename_projection_through_loader(self):
+        cases = (
+            (
+                "unsafe control and whitespace run",
+                "Fuel<>:\x07\u2003\tCard",
+                "Fuel Card.json",
+            ),
+            ("edge dots and replacement spaces", "..<Premium>..", "Premium.json"),
+            ("reserved stem", "CON", "CON_.json"),
+            ("reserved first component", "con.rules", "con_.rules.json"),
+            (
+                "preserved case and safe punctuation",
+                "Travel-Rewards_2026!",
+                "Travel-Rewards_2026!.json",
+            ),
+        )
+        for kind, category, filename in cases:
+            with self.subTest(kind=kind):
+                root, source_directory = self.temporary_source_root()
+                self.write_entry(
+                    "Bank-ru_3",
+                    filename,
+                    {"category": category, "include_mcc": [1]},
+                    source_directory=source_directory,
+                )
+
+                entry = cashbacks.load_sources(root)[0].entries[0]
+
+                self.assertEqual(category, entry["category"])
+
+    def test_rejects_noncanonical_filename_with_actionable_diagnostic(self):
+        category = "Offers\x07Now"
+        path = self.write_entry(
+            "Bank-ru_3",
+            "offers now.json",
+            {"category": category, "include_mcc": [1]},
+        )
+
+        error = self.assert_validation_error("category filename must be")
+
+        self.assertIn(path.relative_to(self.root).as_posix(), error)
+        self.assertIn('"Offers Now.json"', error)
+        self.assertIn('"Offers\\u0007Now"', error)
+
     def test_load_repository_orders_active_and_pending_and_load_sources_excludes_pending(self):
         self.write_entry(
-            "Zulu-ru_12", "zulu.json", {"category": "Zulu", "include_mcc": [12]}
+            "Zulu-ru_12", "Zulu.json", {"category": "Zulu", "include_mcc": [12]}
         )
         self.write_entry(
-            "Alpha-kz_3", "alpha.json", {"category": "Alpha", "include_mcc": [3]}
+            "Alpha-kz_3", "Alpha.json", {"category": "Alpha", "include_mcc": [3]}
         )
         self.write_entry(
-            "Zulu-ru_", "pending-z.json", {"category": "Pending Z", "include_mcc": [2]}
+            "Zulu-ru_", "Pending Z.json", {"category": "Pending Z", "include_mcc": [2]}
         )
         self.write_entry(
-            "Alpha-by_", "pending-a.json", {"category": "Pending A", "exclude_mcc": [1]}
+            "Alpha-by_", "Pending A.json", {"category": "Pending A", "exclude_mcc": [1]}
         )
 
         repository = cashbacks.load_repository(self.root)
@@ -131,13 +192,13 @@ class CashbacksCliTest(unittest.TestCase):
 
     def test_pending_json_emits_only_sorted_repository_relative_paths(self):
         self.write_entry(
-            "Active-ru_7", "active.json", {"category": "Active", "include_mcc": [7]}
+            "Active-ru_7", "Active.json", {"category": "Active", "include_mcc": [7]}
         )
         self.write_entry(
-            "Zulu-ru_", "zulu.json", {"category": "Zulu", "include_mcc": [2]}
+            "Zulu-ru_", "Zulu.json", {"category": "Zulu", "include_mcc": [2]}
         )
         self.write_entry(
-            "Alpha-by_", "alpha.json", {"category": "Alpha", "exclude_mcc": [1]}
+            "Alpha-by_", "Alpha.json", {"category": "Alpha", "exclude_mcc": [1]}
         )
 
         status, stdout, stderr = self.run_cli("pending", "--json")
@@ -154,7 +215,7 @@ class CashbacksCliTest(unittest.TestCase):
 
     def test_pending_json_emits_empty_array_for_active_only_repository(self):
         self.write_entry(
-            "Active-ru_7", "active.json", {"category": "Active", "include_mcc": [7]}
+            "Active-ru_7", "Active.json", {"category": "Active", "include_mcc": [7]}
         )
 
         status, stdout, stderr = self.run_cli("pending", "--json")
@@ -167,7 +228,7 @@ class CashbacksCliTest(unittest.TestCase):
         directory_name = "Банк-->%`-ru_"
         self.write_entry(
             directory_name,
-            "offer.json",
+            "Offer.json",
             {"category": "Offer", "include_mcc": [1]},
         )
 
@@ -193,7 +254,7 @@ class CashbacksCliTest(unittest.TestCase):
                 if kind == "active":
                     self.write_entry(
                         "Pending-ru_",
-                        "pending.json",
+                        "Pending.json",
                         {"category": "Pending", "include_mcc": [1]},
                         source_directory=source_directory,
                     )
@@ -245,8 +306,8 @@ class CashbacksCliTest(unittest.TestCase):
 
     def test_rejects_duplicate_active_bank_id(self):
         entry = {"category": "Offer", "include_mcc": [1]}
-        self.write_entry("First-ru_3", "one.json", entry)
-        self.write_entry("Second-kz_3", "two.json", entry)
+        self.write_entry("First-ru_3", "Offer.json", entry)
+        self.write_entry("Second-kz_3", "Offer.json", entry)
 
         self.assert_validation_error("duplicate bank ID 3; already used by src/First-ru_3")
 
@@ -254,7 +315,7 @@ class CashbacksCliTest(unittest.TestCase):
         aliases = ["Groceries", "Food"]
         self.write_entry(
             "Bank-ru_3",
-            "anything.json",
+            "Groceries.json",
             {"category": aliases, "include_mcc": [5411]},
         )
 
@@ -264,19 +325,18 @@ class CashbacksCliTest(unittest.TestCase):
 
     def test_rejects_aliases_sharing_a_normalized_key(self):
         first = self.write_entry(
-            "Bank-ru_3", "first.json", {"category": "Fuel", "include_mcc": [1]}
+            "Bank-ru_3", "Fuel.json", {"category": "Fuel", "include_mcc": [1]}
         )
         second = self.write_entry(
-            "Bank-ru_3", "second.json", {"category": "fuel", "include_mcc": [2]}
-        )
-        self.write_entry(
-            "Bank-ru_3", "third.json", {"category": "FUEL", "include_mcc": [3]}
+            "Bank-ru_3",
+            "Something else.json",
+            {"category": ["Something else", "fuel"], "include_mcc": [2]},
         )
 
         error = self.assert_validation_error(
             'category alias "fuel" normalizes to "fuel" and conflicts with "Fuel" at'
         )
-        self.assertIn(second.relative_to(self.root).as_posix() + ".category", error)
+        self.assertIn(second.relative_to(self.root).as_posix() + ".category[1]", error)
         self.assertIn(first.relative_to(self.root).as_posix() + ".category", error)
 
     def test_rejects_invalid_alias_values(self):
@@ -346,13 +406,13 @@ class CashbacksCliTest(unittest.TestCase):
     def test_rejects_cross_rule_alias_collision_in_lexical_filename_order(self):
         first = self.write_entry(
             "Bank-ru_3",
-            "a-first.json",
-            {"category": ["Food", "Groceries"], "include_mcc": [1]},
+            "A first.json",
+            {"category": ["A first", "Food"], "include_mcc": [1]},
         )
         second = self.write_entry(
             "Bank-ru_3",
-            "z-second.json",
-            {"category": "Food", "include_mcc": [2]},
+            "Z second.json",
+            {"category": ["Z second", "Food"], "include_mcc": [2]},
         )
 
         error = self.assert_validation_error('duplicate category alias "Food"')
@@ -363,27 +423,27 @@ class CashbacksCliTest(unittest.TestCase):
     def test_rejects_normalized_cross_rule_alias_collision_in_lexical_filename_order(self):
         first = self.write_entry(
             "Bank-ru_3",
-            "a-first.json",
-            {"category": "Fuel!", "include_mcc": [1]},
+            "A first.json",
+            {"category": ["A first", "Fuel!"], "include_mcc": [1]},
         )
         second = self.write_entry(
             "Bank-ru_3",
-            "z-second.json",
-            {"category": ["FUEL"], "include_mcc": [2]},
+            "Z second.json",
+            {"category": ["Z second", "FUEL"], "include_mcc": [2]},
         )
 
         error = self.assert_validation_error(
             'category alias "FUEL" normalizes to "fuel" and conflicts with "Fuel!" at'
         )
-        self.assertIn(second.relative_to(self.root).as_posix() + ".category[0]", error)
-        self.assertIn(first.relative_to(self.root).as_posix() + ".category", error)
+        self.assertIn(second.relative_to(self.root).as_posix() + ".category[1]", error)
+        self.assertIn(first.relative_to(self.root).as_posix() + ".category[1]", error)
 
     def test_allows_normalized_alias_reuse_across_active_and_pending_banks(self):
         self.write_entry(
-            "Bank-ru_3", "active.json", {"category": "Fuel", "include_mcc": [1]}
+            "Bank-ru_3", "Fuel.json", {"category": "Fuel", "include_mcc": [1]}
         )
         self.write_entry(
-            "Bank-ru_", "pending.json", {"category": "fuel", "include_mcc": [2]}
+            "Bank-ru_", "fuel.json", {"category": "fuel", "include_mcc": [2]}
         )
 
         repository = cashbacks.load_repository(self.root)

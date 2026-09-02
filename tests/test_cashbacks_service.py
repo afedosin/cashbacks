@@ -54,8 +54,8 @@ class TemporaryRepository:
         (self.seed / ".gitignore").write_text("runtime/\n", encoding="utf-8")
         self.write_rules(
             [
-                ("10-fuel.json", fuel_rule()),
-                ("20-food.json", fuel_rule(["Food", "Groceries"], 5411)),
+                ("Fuel.json", fuel_rule()),
+                ("Food.json", fuel_rule(["Food", "Groceries"], 5411)),
             ]
         )
         self.commit("initial")
@@ -89,8 +89,13 @@ class TemporaryRepository:
         run_git("push", "origin", "main", cwd=self.seed)
         return run_git("rev-parse", "HEAD", cwd=self.seed)
 
+    def replace_fuel(self, category):
+        filename = f"{category}.json"
+        (self.categories / "Fuel.json").rename(self.categories / filename)
+        self.write_rules([(filename, fuel_rule(category))])
+
     def update_fuel(self, category):
-        self.write_rules([("10-fuel.json", fuel_rule(category))])
+        self.replace_fuel(category)
         self.commit(f"change fuel to {category}")
         return self.push()
 
@@ -112,6 +117,13 @@ class TemporaryRepository:
         config = self.config(checkout=checkout)
         resolved, snapshot = repo_worker.bootstrap_checkout(config)
         return repo_worker.ServiceState(config, resolved, snapshot), checkout
+
+
+def category_for_mcc(snapshot, mcc=5541):
+    categories = json.loads(snapshot.banks[BANK_ID].categories_body)["categories"]
+    return next(
+        entry["category"] for entry in categories if entry["include_mcc"] == [mcc]
+    )
 
 
 class StubState:
@@ -817,7 +829,7 @@ class CheckoutPreparationTest(unittest.TestCase):
             self.assertEqual(list(ordinary.iterdir()), [])
 
         repository = TemporaryRepository(self)
-        tracked = repository.categories / "10-fuel.json"
+        tracked = repository.categories / "Fuel.json"
         tracked.write_text("{", encoding="utf-8")
         (repository.seed / "untracked").write_text("stale", encoding="utf-8")
         ignored = repository.seed / "runtime" / "cache"
@@ -909,7 +921,7 @@ class BootstrapTest(unittest.TestCase):
             os.fspath(checkout),
             cwd=repository.root,
         )
-        tracked = checkout / "src" / f"Bank-ru_{BANK_ID}" / "categories" / "10-fuel.json"
+        tracked = checkout / "src" / f"Bank-ru_{BANK_ID}" / "categories" / "Fuel.json"
         tracked.write_text("{", encoding="utf-8")
         (checkout / "untracked").write_text("stale", encoding="utf-8")
         ignored = checkout / "runtime" / "cache"
@@ -981,7 +993,7 @@ class BootstrapTest(unittest.TestCase):
 
     def test_failed_startup_leaves_disposable_data_for_the_next_start(self):
         repository = TemporaryRepository(self)
-        (repository.categories / "10-fuel.json").write_text("{", encoding="utf-8")
+        (repository.categories / "Fuel.json").write_text("{", encoding="utf-8")
         repository.commit("invalid loader data")
         repository.push()
         checkout = repository.root / "checkout"
@@ -996,7 +1008,7 @@ class BootstrapTest(unittest.TestCase):
         self.assertTrue((checkout / ".git").is_dir())
         partial = checkout / "partial-bootstrap"
         partial.write_text("discard on retry", encoding="utf-8")
-        repository.write_rules([("10-fuel.json", fuel_rule("Recovered"))])
+        repository.replace_fuel("Recovered")
         repository.commit("valid loader data")
         expected_revision = repository.push()
 
@@ -1007,8 +1019,7 @@ class BootstrapTest(unittest.TestCase):
         self.assertEqual(resolved, checkout.resolve())
         self.assertEqual(snapshot.revision, expected_revision)
         self.assertFalse(partial.exists())
-        categories = json.loads(snapshot.banks[BANK_ID].categories_body)
-        self.assertEqual(categories["categories"][0]["category"], "Recovered")
+        self.assertEqual(category_for_mcc(snapshot), "Recovered")
 
     def test_clone_failure_leaves_partial_data_for_the_next_startup_reset(self):
         repository = TemporaryRepository(self)
@@ -1516,8 +1527,7 @@ class SynchronizationTest(unittest.TestCase):
         candidate = repository.update_fuel("Transport")
         self.assertEqual(state.sync(), candidate)
         self.assertEqual(state.snapshot().revision, candidate)
-        categories = json.loads(state.snapshot().banks[BANK_ID].categories_body)
-        self.assertEqual(categories["categories"][0]["category"], "Transport")
+        self.assertEqual(category_for_mcc(state.snapshot()), "Transport")
         self.assertEqual(ignored.read_text(encoding="utf-8"), "preserve")
         self.assertEqual(run_git("rev-parse", "HEAD", cwd=checkout), candidate)
 
@@ -1534,7 +1544,7 @@ class SynchronizationTest(unittest.TestCase):
 
     def test_ignored_collision_fails_before_activation_and_preserves_old_snapshot(self):
         repository = TemporaryRepository(self)
-        ignored_relative = f"src/Bank-ru_{BANK_ID}/categories/30-collision.json"
+        ignored_relative = f"src/Bank-ru_{BANK_ID}/categories/Collision.json"
         with (repository.seed / ".gitignore").open("a", encoding="utf-8") as stream:
             stream.write(ignored_relative + "\n")
         repository.commit("ignore future collision")
@@ -1542,7 +1552,7 @@ class SynchronizationTest(unittest.TestCase):
         state, checkout = repository.cloned_state()
         ignored = checkout / ignored_relative
         ignored.write_text("operator data", encoding="utf-8")
-        repository.write_rules([("30-collision.json", fuel_rule("Collision", 4111))])
+        repository.write_rules([("Collision.json", fuel_rule("Collision", 4111))])
         repository.commit("candidate collision", force_paths=(ignored_relative,))
         repository.push()
         old = state.snapshot()
@@ -1572,7 +1582,7 @@ class SynchronizationTest(unittest.TestCase):
         repository = TemporaryRepository(self)
         state, checkout = repository.cloned_state()
         old = state.snapshot()
-        (repository.categories / "10-fuel.json").write_text("{", encoding="utf-8")
+        (repository.categories / "Fuel.json").write_text("{", encoding="utf-8")
         repository.commit("invalid candidate")
         repository.push()
         self.assertIsNone(state.sync())
@@ -1584,10 +1594,7 @@ class SynchronizationTest(unittest.TestCase):
         self.assertEqual(state.snapshot(), old)
         self.assertEqual(run_git("rev-parse", "HEAD", cwd=checkout), old.revision)
         self.assertEqual(state.sync(), candidate)
-        self.assertEqual(
-            json.loads(state.snapshot().banks[BANK_ID].categories_body)["categories"][0]["category"],
-            "Travel",
-        )
+        self.assertEqual(category_for_mcc(state.snapshot()), "Travel")
 
     def test_activation_failure_rolls_back_or_latches_reconciliation(self):
         for rollback_fails in (False, True):
@@ -1601,10 +1608,7 @@ class SynchronizationTest(unittest.TestCase):
                 )
                 self.assertIsNone(state.sync())
                 self.assertEqual(state.snapshot(), old)
-                self.assertEqual(
-                    json.loads(old.banks[BANK_ID].categories_body)["categories"][0]["category"],
-                    "Fuel",
-                )
+                self.assertEqual(category_for_mcc(old), "Fuel")
                 if rollback_fails:
                     self.assertTrue(state.reconciliation_required)
                     self.assertEqual(run_git("rev-parse", "HEAD", cwd=checkout), candidate)
@@ -1626,18 +1630,12 @@ class SynchronizationTest(unittest.TestCase):
         thread.start()
         self.assertTrue(pausing.reached.wait(5))
         self.assertEqual(state.snapshot(), old)
-        self.assertEqual(
-            json.loads(state.snapshot().banks[BANK_ID].categories_body)["categories"][0]["category"],
-            "Fuel",
-        )
+        self.assertEqual(category_for_mcc(state.snapshot()), "Fuel")
         pausing.release.set()
         thread.join(timeout=10)
         self.assertEqual(result[0], candidate)
         self.assertEqual(state.snapshot().revision, candidate)
-        self.assertEqual(
-            json.loads(state.snapshot().banks[BANK_ID].categories_body)["categories"][0]["category"],
-            "New",
-        )
+        self.assertEqual(category_for_mcc(state.snapshot()), "New")
 
     def test_concurrent_syncs_serialize_without_interleaved_git(self):
         class ObservableLock:
@@ -1698,14 +1696,11 @@ class SynchronizationTest(unittest.TestCase):
         (server / "app.py").write_text(
             'raise RuntimeError("must not execute fetched code")\n', encoding="utf-8"
         )
-        repository.write_rules([("10-fuel.json", fuel_rule("Safe data"))])
+        repository.replace_fuel("Safe data")
         repository.commit("data and hostile application update")
         candidate = repository.push()
         self.assertEqual(state.sync(), candidate)
-        self.assertEqual(
-            json.loads(state.snapshot().banks[BANK_ID].categories_body)["categories"][0]["category"],
-            "Safe data",
-        )
+        self.assertEqual(category_for_mcc(state.snapshot()), "Safe data")
 
 
 class ServiceStartupTest(unittest.TestCase):

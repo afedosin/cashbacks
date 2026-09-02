@@ -282,6 +282,28 @@ def _validate_category_basename(name: str, location: str) -> str:
         raise DataError(f"{location}: category filename uses a reserved Windows stem")
     return name
 
+def _canonical_category_filename(alias: str) -> str:
+    stem_characters: list[str] = []
+    replacing_run = False
+    for character in alias:
+        replace = (
+            character.isspace()
+            or unicodedata.category(character) == "Cc"
+            or character in WINDOWS_UNSAFE_FILENAME_CHARACTERS
+        )
+        if replace:
+            if not replacing_run:
+                stem_characters.append(" ")
+        else:
+            stem_characters.append(character)
+        replacing_run = replace
+
+    stem = "".join(stem_characters).strip(" .")
+    first_component, separator, remainder = stem.partition(".")
+    if WINDOWS_RESERVED_FILENAME_STEM.fullmatch(first_component):
+        stem = f"{first_component}_{separator}{remainder}"
+    return f"{stem}.json"
+
 
 def _validate_category_rule(
     value: Any, path: Path, root: Path
@@ -423,8 +445,16 @@ def _load_category_files(
     aliases: dict[str, tuple[str, Path, str]] = {}
     entries: list[dict[str, Any]] = []
     for path in source_paths:
-        entry, rule_aliases = _validate_category_rule(_parse_json(path, root), path, root)
         display_path = _display_path(path, root)
+        entry, rule_aliases = _validate_category_rule(_parse_json(path, root), path, root)
+        first_alias = rule_aliases[0][0]
+        expected_filename = _canonical_category_filename(first_alias)
+        if path.name != expected_filename:
+            raise DataError(
+                f"{display_path}: category filename must be "
+                f"{_quoted(expected_filename)} for first category alias "
+                f"{_quoted(first_alias)}"
+            )
         for alias, normalized, alias_location in rule_aliases:
             first = aliases.get(normalized)
             if first is not None:
